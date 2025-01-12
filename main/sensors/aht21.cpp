@@ -28,13 +28,13 @@ AHT21::AHT21(i2c::I2CBusMaster &bus):
 
 AHT21::ExpectedResult AHT21::ResetReg(uint8_t reg)
 {
-    TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(reg, 0)), adapt_err<ErrorCode::ResetRegs>);
+    TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(reg, 0, kTimeout)), adapt_err<ErrorCode::ResetRegs>);
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     uint8_t values[3];
-    TRY_VOID_ADAPT_ERR((m_Device.Recv(values, sizeof(values))), adapt_err<ErrorCode::ResetRegs>);
+    TRY_VOID_ADAPT_ERR((m_Device.Recv(values, sizeof(values), kTimeout)), adapt_err<ErrorCode::ResetRegs>);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     values[0] = reg | 0xb0;
-    TRY_VOID_ADAPT_ERR((m_Device.Send(values, sizeof(values))), adapt_err<ErrorCode::ResetRegs>);
+    TRY_VOID_ADAPT_ERR((m_Device.Send(values, sizeof(values), kTimeout)), adapt_err<ErrorCode::ResetRegs>);
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     return std::ref(*this);
 }
@@ -44,13 +44,13 @@ AHT21::ExpectedResult AHT21::Init()
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     uint8_t status;
-    TRY_RESULT_ADAPT_ERR(status, (m_Device.ReadReg8(0x71)), adapt_err<ErrorCode::Init_GetStatus>);
+    TRY_RESULT_ADAPT_ERR(status, (m_Device.ReadReg8(0x71, kTimeout)), adapt_err<ErrorCode::Init_GetStatus>);
     if (!(status & 0x04))
     {
         //not calibrated
-        TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(0xbe, 0x0800)), adapt_err<ErrorCode::Init_Calibration>);
+        TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(0xbe, 0x0800, kTimeout)), adapt_err<ErrorCode::Init_Calibration>);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        TRY_RESULT_ADAPT_ERR(status, (m_Device.ReadReg8(0x71)), adapt_err<ErrorCode::Init_GetStatus>);
+        TRY_RESULT_ADAPT_ERR(status, (m_Device.ReadReg8(0x71, kTimeout)), adapt_err<ErrorCode::Init_GetStatus>);
         if ((status & 0x18) != 0x18)
         {
             TRY_VOID(ResetReg(0x1b));
@@ -64,13 +64,13 @@ AHT21::ExpectedResult AHT21::Init()
 
 AHT21::ExpectedValue<AHT21::Measurements> AHT21::UpdateMeasurements()
 {
-    TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(0xAC, 0x3300)), adapt_err<ErrorCode::Measure_IssueComand>);
+    TRY_VOID_ADAPT_ERR((m_Device.WriteReg16(0xAC, 0x3300, kTimeout)), adapt_err<ErrorCode::Measure_IssueComand>);
     std::this_thread::sleep_for(std::chrono::milliseconds(80)); 
     auto on_err = []{ std::this_thread::sleep_for(std::chrono::milliseconds(10)); };
     uint8_t data[7];
     for(int retry = 3; ; --retry)
     {
-        RETRY_VOID_ADAPT_ERR(retry, m_Device.Recv(data, sizeof(data)), on_err, adapt_err<ErrorCode::Measure_IssueComand>);
+        RETRY_VOID_ADAPT_ERR(retry, m_Device.Recv(data, sizeof(data), kTimeout), on_err, adapt_err<ErrorCode::Measure_IssueComand>);
         StatusReg *pStatus = reinterpret_cast<StatusReg *>(&data[0]);
         if (!pStatus->bits.busy)
         {

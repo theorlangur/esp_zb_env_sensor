@@ -9,6 +9,7 @@ class AHT21
 {
 public:
     static constexpr const uint8_t kAddress = 0x38;
+    static constexpr const i2c::duration_t kTimeout = std::chrono::milliseconds(500);
 
     enum class ErrorCode: uint8_t
     {
