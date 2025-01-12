@@ -12,6 +12,9 @@
 #include "esp_flash.h"
 #include "esp_system.h"
 
+#include "sensors/aht21.hpp"
+#include <thread>
+
 extern "C" void app_main(void)
 {
     printf("Hello world!\n");
@@ -40,6 +43,57 @@ extern "C" void app_main(void)
            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
     printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
+
+    auto print_error = [](auto &e) { printf("i2c Error at %s: %s\n", e.pLocation, esp_err_to_name(e.code)); fflush(stdout); };
+
+    i2c::I2CBusMaster bus(i2c::SDAType(gpio_num_t(10)), i2c::SCLType(gpio_num_t(11)));
+    auto r = bus.Open();
+    if (!r)
+    {
+        print_error(r.error());
+        return;
+    }
+    printf("I2C bus opened\n");
+
+    auto print_aht21_error = [&](auto &e) 
+    { 
+        printf("AHT21 Error at %s: %s\n", e.pLocation, AHT21::err_to_str(e.code));
+        print_error(e.i2cErr);
+    };
+
+    AHT21 sensor(bus);
+    if (auto r = sensor.Init(); !r)
+    {
+        print_aht21_error(r.error());
+        return;
+    }
+
+    printf("AHT21 initialized\n");
+    std::atomic_flag sensorUpdateRunning{true};
+    std::jthread sensor_update([&]{
+            while(true)
+            {
+                if (auto r = sensor.UpdateMeasurements(); !r)
+                {
+                    print_aht21_error(r.error());
+                    sensorUpdateRunning.clear(std::memory_order_relaxed);
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(3));
+            }
+    });
+        
+    while(sensorUpdateRunning.test(std::memory_order_relaxed))
+    {
+        auto r = sensor.GetLastMeasurements();
+        if (r)
+        {
+            auto [_t, _h] = r.value();
+            printf("Temp: %f; Hum: %f\n", _t, _h);
+            fflush(stdout);
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 
     for (int i = 10; i >= 0; i--) {
         printf("Restarting in %d seconds...\n", i);
