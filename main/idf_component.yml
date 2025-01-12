@@ -1,5 +1,7 @@
 ## IDF Component Manager Manifest File
 dependencies:
+  espressif/esp-zigbee-lib: "*"
+  espressif/esp-zboss-lib: "*"
   esp_generic_lib:
     path: ../submodules/esp_generic_lib
   # esp_zb_helpers:
