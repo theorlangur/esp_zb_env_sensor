@@ -1,3 +1,4 @@
 idf_component_register(SRCS "main.cpp"
-                    #PRIV_REQUIRES spi_flash
+                    sensors/aht21.hpp
+                    sensors/aht21.cpp
                     INCLUDE_DIRS "")
