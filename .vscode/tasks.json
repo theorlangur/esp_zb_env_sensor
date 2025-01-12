@@ -1,0 +1,64 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Created Merged Bin",
+            "type": "shell",
+            "command": "pushd build && cat flasher_args.json | grep \"chip\" | awk -F'\"' '{print $4}' >target.env && esptool.py --chip @target.env merge_bin -o merged-firmware-$(cat target.env).bin @flash_project_args && popd"
+        },
+        {
+            "label": "Set Target H2",
+            "type": "shell",
+            "command": "idf.py -D IDF_TOOLCHAIN=clang set-target esp32h2 && cp -f --update=all sdkconfig.dbg.h2 sdkconfig.dbg && cp -f --update=all sdkconfig.rel.h2 sdkconfig.rel"
+        },
+        {
+            "label": "Set Target C6",
+            "type": "shell",
+            "command": "idf.py -D IDF_TOOLCHAIN=clang  set-target esp32c6 && cp -f --update=all sdkconfig.dbg.c6 sdkconfig.dbg && cp -f --update=all sdkconfig.rel.c6 sdkconfig.rel"
+        },
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "cp -f --update=all sdkconfig.dbg sdkconfig && cmake --build build",
+            "group": { "kind": "build" }
+        },
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "cp -f --update=all sdkconfig.rel sdkconfig && cmake --build build",
+            "group": { "kind": "build" }
+        },
+        {
+            "label": "Build Last",
+            "type": "shell",
+            "command": "cmake --build build",
+            "group": {
+                "isDefault": true,
+                "kind": "build"
+            }
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "idf.py flash"
+        },
+        {
+            "label": "Erase Flash",
+            "type": "shell",
+            "command": "idf.py erase-flash"
+        },
+        {
+            "label": "Monitor",
+            "type": "shell",
+            "command": "idf.py monitor"
+        },
+        {
+            "label": "Kill Monitor",
+            "type": "shell",
+            "options": {
+                "detached": true
+            },
+            "command": "kill $(ps -faux | grep 'idf.py monitor' | head -1 | awk '{print $2}')"
+        }
+    ]
+}
