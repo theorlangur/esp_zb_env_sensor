@@ -13,6 +13,7 @@
 #include "esp_system.h"
 
 #include "sensors/aht21.hpp"
+#include "sensors/ens160.hpp"
 #include <thread>
 
 extern "C" void app_main(void)
@@ -60,6 +61,98 @@ extern "C" void app_main(void)
         printf("AHT21 Error at %s: %s\n", e.pLocation, AHT21::err_to_str(e.code));
         print_error(e.i2cErr);
     };
+    auto print_ens160_error = [&](auto &e) 
+    { 
+        printf("ENS160 Error %s\n", ENS160::err_to_str(e.code));
+        print_error(e.i2cErr);
+    };
+
+    auto print_ens160_status = [](ENS160::Status s) 
+    { 
+        printf("Status:\n");
+        printf("New GPR: %d\n", int(s.new_gpr));
+        printf("New Data: %d\n", int(s.new_data));
+        printf("Validity: %d\n", int(s.validity));
+        printf("Error: %d\n", int(s.error));
+        printf("State: %d\n", int(s.state));
+    };
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    ENS160 ens160(bus);
+    if (auto r = ens160.GetOpMode(); !r)
+    {
+        print_ens160_error(r.error());
+        return;
+    }else
+    {
+        printf("ENS160: Current mode: %x\n", int(*r));
+    }
+
+    ENS160::Status stat;
+    if (auto r = ens160.GetStatus(); !r)
+    {
+        print_ens160_error(r.error());
+        return;
+    }else
+        stat = *r;
+    print_ens160_status(stat);
+
+    if (auto r = ens160.GetVersion(); !r)
+    {
+        print_ens160_error(r.error());
+        return;
+    }else
+    {
+        printf("Version: %d.%d.%d\n", r->maj, r->min, r->rel);
+    }
+
+    if (auto r = ens160.GoToSensing()/*DoOneShotMeasurements()*/; !r)
+    {
+        print_ens160_error(r.error());
+        return;
+    }
+
+    while(true)
+    {
+        printf("Measurements:\n");
+        if (auto r = ens160.ReadTemperature(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("Temp: %.2f\n", *r);
+
+        if (auto r = ens160.ReadRelativeHumidity(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("RH: %.2f%%\n", *r);
+
+        if (auto r = ens160.ReadAirQualityIndex(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("AQI: %d\n", *r);
+
+        if (auto r = ens160.ReadTVOC(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("TVOC: %d\n", *r);
+
+        if (auto r = ens160.ReadeCO2(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("eCO2: %d\n", *r);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
 
     AHT21 sensor(bus);
     if (auto r = sensor.Init(); !r)

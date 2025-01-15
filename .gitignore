@@ -2,6 +2,8 @@ build/
 managed_components/
 compile_commands.json
 sdkconfig
+sdkconfig.dbg
+sdkconfig.rel
 sdkconfig.old
 sdkconfig.ci
 .cache
