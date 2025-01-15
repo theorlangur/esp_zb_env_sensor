@@ -112,8 +112,38 @@ extern "C" void app_main(void)
         return;
     }
 
+    AHT21 sensor(bus);
+    if (auto r = sensor.Init(); !r)
+    {
+        print_aht21_error(r.error());
+        return;
+    }
+
     while(true)
     {
+        if (auto r = sensor.UpdateMeasurements(); !r)
+        {
+            print_aht21_error(r.error());
+            return;
+        }
+
+        auto r = sensor.GetLastMeasurements();
+        if (r)
+        {
+            auto [_t, _h] = r.value();
+            printf("AHT21 Temp: %f; Hum: %f\n", _t, _h);
+            if (auto tr = ens160.WriteHostTemperature(_t); !tr)
+            {
+                print_ens160_error(tr.error());
+                return;
+            }
+            if (auto tr = ens160.WriteHostRelativeHumidity(_h); !tr)
+            {
+                print_ens160_error(tr.error());
+                return;
+            }
+        }
+
         printf("Measurements:\n");
         if (auto r = ens160.ReadTemperature(); !r)
         {
@@ -128,6 +158,20 @@ extern "C" void app_main(void)
             return;
         }else
             printf("RH: %.2f%%\n", *r);
+
+        if (auto r = ens160.ReadHostTemperature(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("Host Temp: %.2f\n", *r);
+
+        if (auto r = ens160.ReadHostRelativeHumidity(); !r)
+        {
+            print_ens160_error(r.error());
+            return;
+        }else
+            printf("Host RH: %.2f%%\n", *r);
 
         if (auto r = ens160.ReadAirQualityIndex(); !r)
         {
@@ -149,17 +193,12 @@ extern "C" void app_main(void)
             return;
         }else
             printf("eCO2: %d\n", *r);
+        fflush(stdout);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
-    AHT21 sensor(bus);
-    if (auto r = sensor.Init(); !r)
-    {
-        print_aht21_error(r.error());
-        return;
-    }
 
     printf("AHT21 initialized\n");
     std::atomic_flag sensorUpdateRunning{true};
