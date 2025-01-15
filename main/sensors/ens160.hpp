@@ -27,6 +27,10 @@ public:
         ReadAQI,
         ReadTVOC,
         ReadeCO2,
+        ReadHostTemp,
+        ReadHostRelHumid,
+        WriteHostTemp,
+        WriteHostRelHumid,
     };
     static const char* err_to_str(ErrorCode e);
 
@@ -96,6 +100,11 @@ public:
     ExpectedResult GoToDeepSleep();
 
     ExpectedValue<OpMode> GetOpMode() const;
+
+    ExpectedValue<float> ReadHostTemperature() const;
+    ExpectedValue<float> ReadHostRelativeHumidity() const;
+    ExpectedResult WriteHostTemperature(float t);
+    ExpectedResult WriteHostRelativeHumidity(float rh);
 
     ExpectedValue<float> ReadTemperature() const;
     ExpectedValue<float> ReadRelativeHumidity() const;

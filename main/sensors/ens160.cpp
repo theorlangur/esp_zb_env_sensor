@@ -37,6 +37,10 @@ const char* ENS160::err_to_str(ErrorCode e)
         case ErrorCode::ReadAQI: return "ReadAQI";
         case ErrorCode::ReadTVOC: return "ReadTVOC";
         case ErrorCode::ReadeCO2: return "ReadeCO2";
+        case ErrorCode::ReadHostTemp: return "ReadHostTemp";
+        case ErrorCode::ReadHostRelHumid: return "ReadHostRelHumid";
+        case ErrorCode::WriteHostTemp: return "WriteHostTemp";
+        case ErrorCode::WriteHostRelHumid: return "WriteHostRelHumid";
     }
 }
 
@@ -129,6 +133,32 @@ ENS160::ExpectedValue<float> ENS160::ReadRelativeHumidity() const
     uint16_t t;
     TRY_READ_REG(t, DataRHReg, ErrorCode::ReadRelHumid);
     return InternalRHToRH(t);
+}
+
+ENS160::ExpectedValue<float> ENS160::ReadHostTemperature() const
+{
+    uint16_t t;
+    TRY_READ_REG(t, TempInReg, ErrorCode::ReadHostTemp);
+    return InternalTempToC(t);
+}
+
+ENS160::ExpectedValue<float> ENS160::ReadHostRelativeHumidity() const
+{
+    uint16_t t;
+    TRY_READ_REG(t, RelHumReg, ErrorCode::ReadHostRelHumid);
+    return InternalRHToRH(t);
+}
+
+ENS160::ExpectedResult ENS160::WriteHostTemperature(float t)
+{
+    TRY_WRITE_REG(TempInReg, CToInternalTemp(t), ErrorCode::WriteHostTemp);
+    return std::ref(*this);
+}
+
+ENS160::ExpectedResult ENS160::WriteHostRelativeHumidity(float rh)
+{
+    TRY_WRITE_REG(RelHumReg, RHToInternalRH(rh), ErrorCode::WriteHostRelHumid);
+    return std::ref(*this);
 }
 
 ENS160::ExpectedValue<uint8_t> ENS160::ReadAirQualityIndex() const
