@@ -16,6 +16,120 @@
 #include "sensors/ens160.hpp"
 #include <thread>
 
+void test_bmp280(i2c::I2CBusMaster &bus)
+{
+    auto d = *bus.Add(0x76);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    uint8_t val = d.ReadReg8(0xd0)->v;
+    printf("BMP280\n");
+    printf("Id: %x\n", val);
+    fflush(stdout);
+    //std::this_thread::sleep_for(std::chrono::seconds(20));
+
+    using dig_T1_r = i2c::helpers::RegisterMultiByte<uint16_t, 0x88, i2c::helpers::RegAccess::Read>;
+    using dig_T2_r = i2c::helpers::RegisterMultiByte<int16_t, 0x8a, i2c::helpers::RegAccess::Read>;
+    using dig_T3_r = i2c::helpers::RegisterMultiByte<int16_t, 0x8c, i2c::helpers::RegAccess::Read>;
+    using dig_P1_r = i2c::helpers::RegisterMultiByte<uint16_t, 0x8e, i2c::helpers::RegAccess::Read>;
+    using dig_P2_r = i2c::helpers::RegisterMultiByte<int16_t, 0x90, i2c::helpers::RegAccess::Read>;
+    using dig_P3_r = i2c::helpers::RegisterMultiByte<int16_t, 0x92, i2c::helpers::RegAccess::Read>;
+    using dig_P4_r = i2c::helpers::RegisterMultiByte<int16_t, 0x94, i2c::helpers::RegAccess::Read>;
+    using dig_P5_r = i2c::helpers::RegisterMultiByte<int16_t, 0x96, i2c::helpers::RegAccess::Read>;
+    using dig_P6_r = i2c::helpers::RegisterMultiByte<int16_t, 0x98, i2c::helpers::RegAccess::Read>;
+    using dig_P7_r = i2c::helpers::RegisterMultiByte<int16_t, 0x9a, i2c::helpers::RegAccess::Read>;
+    using dig_P8_r = i2c::helpers::RegisterMultiByte<int16_t, 0x9c, i2c::helpers::RegAccess::Read>;
+    using dig_P9_r = i2c::helpers::RegisterMultiByte<int16_t, 0x9e, i2c::helpers::RegAccess::Read>;
+
+    uint16_t dig_T1, dig_P1;
+    dig_T1_r{d}.Read(dig_T1);
+    int16_t dig_T2, dig_T3;
+    dig_T2_r{d}.Read(dig_T2);
+    dig_T3_r{d}.Read(dig_T3);
+    printf("BMP280: Temp calibration: T1=x%x; T2=x%x; T3=x%x\n", dig_T1, dig_T2, dig_T3);
+    
+    int16_t dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
+    dig_P1_r{d}.Read(dig_P1);
+    dig_P2_r{d}.Read(dig_P2);
+    dig_P3_r{d}.Read(dig_P3);
+    dig_P4_r{d}.Read(dig_P4);
+    dig_P5_r{d}.Read(dig_P5);
+    dig_P6_r{d}.Read(dig_P6);
+    dig_P7_r{d}.Read(dig_P7);
+    dig_P8_r{d}.Read(dig_P8);
+    dig_P9_r{d}.Read(dig_P9);
+    printf("BMP280: Press calibration: P1=x%x; P2=x%x; P3=x%x; P4=x%x; P5=x%x; P6=x%x; P7=x%x; P8=x%x; P9=x%x\n", dig_P1, dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9);
+
+    struct ctrl_meas
+    {
+        uint8_t mode: 2 = 0b11;
+        uint8_t oversampling_press: 3 = 1;//0 - disabled
+        uint8_t oversampling_temp: 3 = 1;//0 - disabled
+    };
+    using ctrl_meas_r = i2c::helpers::Register<ctrl_meas, 0xf4, i2c::helpers::RegAccess::RW>;
+
+    ctrl_meas_r{d}.Write(ctrl_meas{});
+
+    struct temp_data{
+        uint8_t raw[3];
+    };
+    int32_t t_fine;
+    auto get_temp = [&](const temp_data &td)->float
+    {
+        int32_t adc_T = int32_t(td.raw[0]) << 12 | int32_t(td.raw[1]) << 4 | (td.raw[2] >> 4);
+        int32_t var1, var2, T;
+        var1 = ((((adc_T >> 3) - ((int32_t)dig_T1 << 1 ))) * ((int32_t)dig_T2)) >> 11;
+        var2 = (((((adc_T >> 4) - ((int32_t)dig_T1)) * ((adc_T >> 4) - ((int32_t)dig_T1))) >> 12) * ((int32_t)dig_T3)) >> 14;
+        t_fine = var1 + var2;
+        T = (t_fine * 5 + 128) >> 8;
+        return float(T) / 100.f;
+    };
+    struct press_data{
+        uint8_t raw[3];
+    };
+    auto get_press = [&](const press_data &pd)->float
+    {
+        int32_t adc_P = int32_t(pd.raw[0]) << 12 | int32_t(pd.raw[1]) << 4 | (pd.raw[2] >> 4);
+        int64_t var1, var2, p;
+        var1 = ((int64_t)t_fine) - 128000;
+        var2 = var1 * var1 * (int64_t)dig_P6;
+        var2 = var2 + ((var1 * (int64_t)dig_P5) << 17);
+        var2 = var2 + (((int64_t)dig_P4) << 35);
+        var1 = ((var1 * var1 * (int64_t)dig_P3) >> 8) + ((var1 * (int64_t)dig_P2) << 12);
+        if (var1 == 0)
+            return 0;
+        p = 1048576 - adc_P;
+        p = (((p << 31) - var2) * 3125)/var1;
+        var1 = (((int64_t)dig_P9) * (p>>13)* (p>>13)) >> 25;
+        var2 = (((int64_t)dig_P8) * p) >> 19;
+        p = ((p + var1 + var2) >> 8) + (((int64_t)dig_P7) << 4);
+        return float(p) / 256;
+    };
+    struct press_temp_data{
+        press_data press;
+        temp_data temp;
+    };
+    using press_temp_r = i2c::helpers::RegisterMultiByte<press_temp_data, 0xf7, i2c::helpers::RegAccess::Read>;
+
+    struct status
+    {
+        uint8_t im_update: 1;
+        uint8_t reserved : 2;
+        uint8_t measuring: 1;
+        uint8_t reserved2: 4;
+    };
+    //using status_r = i2c::helpers::Register<status, 0xf5, i2c::helpers::RegAccess::Read>;
+    while(true)
+    {
+        //status s = *status_r{d}.Read();
+        //printf("BMP280 Status before read: im update=%d; measuring=%d\n", int(s.im_update), int(s.measuring));
+        press_temp_data raw_mixed;
+        press_temp_r{d}.Read(raw_mixed);
+        printf("BMP280: Temp %.2f; Press: %.2fPa\n", get_temp(raw_mixed.temp), get_press(raw_mixed.press));
+        //s = *status_r{d}.Read();
+        //printf("BMP280 Status after read: im update=%d; measuring=%d\n", int(s.im_update), int(s.measuring));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
 extern "C" void app_main(void)
 {
     printf("Hello world!\n");
@@ -55,6 +169,7 @@ extern "C" void app_main(void)
         return;
     }
     printf("I2C bus opened\n");
+    test_bmp280(bus);
 
     auto print_aht21_error = [&](auto &e) 
     { 
