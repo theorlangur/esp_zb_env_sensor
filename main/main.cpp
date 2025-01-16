@@ -58,11 +58,22 @@ void test_bmp280(i2c::I2CBusMaster &bus)
     dig_P9_r{d}.Read(dig_P9);
     printf("BMP280: Press calibration: P1=x%x; P2=x%x; P3=x%x; P4=x%x; P5=x%x; P6=x%x; P7=x%x; P8=x%x; P9=x%x\n", dig_P1, dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9);
 
+    enum class Oversampling: uint8_t
+    {
+        Disabled = 0b000,
+        O1 = 0b001,
+        O2 = 0b010,
+        O4 = 0b011,
+        O8 = 0b100,
+        O16 = 0b101,
+        O16_2 = 0b110,
+        O16_3 = 0b111,
+    };
     struct ctrl_meas
     {
         uint8_t mode: 2 = 0b11;
-        uint8_t oversampling_press: 3 = 1;//0 - disabled
-        uint8_t oversampling_temp: 3 = 1;//0 - disabled
+        Oversampling oversampling_press: 3 = Oversampling::O1;
+        Oversampling oversampling_temp: 3 = Oversampling::O1;
     };
     using ctrl_meas_r = i2c::helpers::Register<ctrl_meas, 0xf4, i2c::helpers::RegAccess::RW>;
 
@@ -115,6 +126,35 @@ void test_bmp280(i2c::I2CBusMaster &bus)
         uint8_t reserved : 2;
         uint8_t measuring: 1;
         uint8_t reserved2: 4;
+    };
+
+    enum class StandbyT: uint8_t
+    {
+        _0_5ms  = 0b000,
+        _62_5ms = 0b001,
+        _125ms  = 0b010,
+        _250ms  = 0b011,
+        _500ms  = 0b100,
+        _1000ms = 0b101,
+        _2000ms = 0b110,
+        _4000ms = 0b111,
+    };
+
+    enum class Filter: uint8_t
+    {
+        Off = 0,
+        _2  = 1,
+        _4  = 2,
+        _8  = 3,
+        _16 = 4,
+    };
+
+    struct config
+    {
+        uint8_t spi3       : 1 = 0;
+        uint8_t unused     : 1 = 0;
+        Filter filter      : 3 = Filter::Off;
+        StandbyT t_standby : 3 = StandbyT::_500ms;
     };
     //using status_r = i2c::helpers::Register<status, 0xf5, i2c::helpers::RegAccess::Read>;
     while(true)
