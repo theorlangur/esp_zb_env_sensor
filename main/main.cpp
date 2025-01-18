@@ -31,21 +31,6 @@ void print_scd40_error(SCD40::Err &e)
 void test_scd40(i2c::I2CBusMaster &bus)
 {
     SCD40 s = *SCD40::Open(bus);
-    /*[&]()->SCD40{ 
-        if (auto r = SCD40::Open(bus); !r)
-        {
-            printf("Failed to open SCD4X sensor with code: %d; esp code %d\n", (int)r.error().code, r.error().i2cErr.code);
-            return *r;
-        }else
-            return *r; 
-    }();*/
-    auto _stop = s.stop();
-    if (!_stop)
-    {
-        printf("Stop failed\n");
-        print_scd40_error(_stop.error());
-        return;
-    }
 
     auto _type = s.get_sensor_type();
     if (!_type)
@@ -65,24 +50,34 @@ void test_scd40(i2c::I2CBusMaster &bus)
     auto serial = *_serial;
     printf("SCD4X serial id: 0x%x 0x%x 0x%x\n", serial.w[0], serial.w[1], serial.w[2]);
     fflush(stdout);
-    s.start();
+    if (auto r = s.start(); !r)
+    {
+        print_scd40_error(r.error());
+        return;
+    }
     while(true)
     {
-        if (auto r = s.is_data_ready(); !r)
+        if (auto r = s.wait_until_data_ready(duration_ms_t(8000)); !r)
         {
             print_scd40_error(r.error());
             return;
-        }else if (!*r)
-        {
-            printf("Measurements not ready...\n");
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
         }
-        auto m = *s.read_measurements();
-        printf("CO2: %dppm; Temp: %.2f; RH: %.2f\n", m.co2, m.temp, m.rh);
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        if (auto r = s.read_measurements(); !r)
+        {
+            print_scd40_error(r.error());
+            return;
+        }else
+        {
+            auto m = *r;
+            printf("CO2: %dppm; Temp: %.2f; RH: %.2f\n", m.co2, m.temp, m.rh);
+        }
     }
-    s.stop();
+    if (auto r = s.stop(); !r)
+    {
+        print_scd40_error(r.error());
+        return;
+    }
 }
 
 void test_bmp280(i2c::I2CBusMaster &bus)
