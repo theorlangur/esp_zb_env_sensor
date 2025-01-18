@@ -14,7 +14,76 @@
 
 #include "sensors/aht21.hpp"
 #include "sensors/ens160.hpp"
+#include "sensors/scd40.hpp"
 #include <thread>
+
+void print_i2c_error(auto &e) 
+{ 
+    printf("i2c Error at %s: %s\n", e.pLocation, esp_err_to_name(e.code)); fflush(stdout); 
+}
+
+void print_scd40_error(SCD40::Err &e) 
+{ 
+    printf("SCD40 Error: %s\n", SCD40::err_to_str(e.code));
+    print_i2c_error(e.i2cErr);
+}
+
+void test_scd40(i2c::I2CBusMaster &bus)
+{
+    SCD40 s = *SCD40::Open(bus);
+    /*[&]()->SCD40{ 
+        if (auto r = SCD40::Open(bus); !r)
+        {
+            printf("Failed to open SCD4X sensor with code: %d; esp code %d\n", (int)r.error().code, r.error().i2cErr.code);
+            return *r;
+        }else
+            return *r; 
+    }();*/
+    auto _stop = s.stop();
+    if (!_stop)
+    {
+        printf("Stop failed\n");
+        print_scd40_error(_stop.error());
+        return;
+    }
+
+    auto _type = s.get_sensor_type();
+    if (!_type)
+    {
+        printf("Get sensor type failed\n");
+        print_scd40_error(_type.error());
+        return;
+    }
+    printf("SCD4X sensor type: %d\n", int(*_type));
+    fflush(stdout);
+    auto _serial = s.get_serial_id();
+    if (!_serial)
+    {
+        print_scd40_error(_serial.error());
+        return;
+    }
+    auto serial = *_serial;
+    printf("SCD4X serial id: 0x%x 0x%x 0x%x\n", serial.w[0], serial.w[1], serial.w[2]);
+    fflush(stdout);
+    s.start();
+    while(true)
+    {
+        if (auto r = s.is_data_ready(); !r)
+        {
+            print_scd40_error(r.error());
+            return;
+        }else if (!*r)
+        {
+            printf("Measurements not ready...\n");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+        auto m = *s.read_measurements();
+        printf("CO2: %dppm; Temp: %.2f; RH: %.2f\n", m.co2, m.temp, m.rh);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    s.stop();
+}
 
 void test_bmp280(i2c::I2CBusMaster &bus)
 {
@@ -209,7 +278,9 @@ extern "C" void app_main(void)
         return;
     }
     printf("I2C bus opened\n");
-    test_bmp280(bus);
+    test_scd40(bus);
+    return;
+    //test_bmp280(bus);
 
     auto print_aht21_error = [&](auto &e) 
     { 

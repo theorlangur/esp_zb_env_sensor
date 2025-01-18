@@ -2,6 +2,7 @@
 #define SCD40_HPP_
 
 #include "ph_i2c.hpp"
+#include <thread>
 
 template<class C>
 concept word_conformant_c =  requires { requires (sizeof(C) % sizeof(uint16_t) == 0); };
@@ -18,7 +19,13 @@ public:
         , ReadMeasurements
         , GetSensorType
         , GetSerialId
+        , Start
+        , StartLowPower
+        , Stop
+        , IsDataReady
+        , WaitDataReady
     };
+    static const char* err_to_str(ErrorCode e);
 
     enum class SensorType: uint16_t
     {
@@ -54,9 +61,14 @@ public:
     SCD40(SCD40 &&d) = default;
     SCD40(const SCD40 &d) = delete;
 
+    ExpectedResult start();
+    ExpectedResult start_low_power();
+    ExpectedResult stop();
     ExpectedValue<measurement_results_t> read_measurements();
     ExpectedValue<SensorType> get_sensor_type();
     ExpectedValue<serial_t> get_serial_id();
+    ExpectedValue<bool> is_data_ready();
+    ExpectedResult wait_until_data_ready(i2c::duration_t d = kForever);
 private:
     SCD40(i2c::I2CDevice &&d);
     struct word_t
@@ -182,13 +194,22 @@ private:
         }
     };
 
-    template<Regs r, class Val> requires word_conformant_c<Val>
+    template<Regs r, class Val, size_t durMS = 0> requires word_conformant_c<Val>
     struct RegRead: RegisterBase
     {
         std::expected<Val, ::Err> Recv()
         {
             cmd_data_t<0> reg_data{r};
+            //if (auto ret = d.Send(reg_data, sizeof(reg_data), i2c::helpers::kTimeout); !ret)
+            //    return std::unexpected(ret.error());
+            //if constexpr (durMS)
+            //{
+            //    printf("Sleeping for %d ms\n", durMS);
+            //    std::this_thread::sleep_for(std::chrono::milliseconds(durMS));
+            //}
             recv_data_t<Val> data;
+            //if (auto ret = d.Recv(data, sizeof(data), i2c::helpers::kTimeout); !ret)
+                //return std::unexpected(ret.error());
             if (auto ret = d.SendRecv(reg_data, sizeof(reg_data), data, sizeof(data), i2c::helpers::kTimeout); !ret)
                 return std::unexpected(ret.error());
 
@@ -226,7 +247,7 @@ private:
         float get_temp() const { return (float(t) / float(0xffff)) * 175 - 45; }
         float get_humidity() const { return (float(t) / float(0xffff)) * 100; }
     };
-    using read_measurement = RegRead<Regs::read_measurement, measurement_t>;
+    using read_measurement = RegRead<Regs::read_measurement, measurement_t, 1>;
     using stop_periodic_measurement = RegCmd<Regs::stop_periodic_measurement>;
     
     struct t_offset_t
@@ -275,9 +296,9 @@ private:
         uint16_t status: 11;
         uint16_t unused: 5;
     };
-    using get_data_ready_status = RegWrite<Regs::get_data_ready_status, data_ready_t>;
+    using get_data_ready_status = RegRead<Regs::get_data_ready_status, data_ready_t, 1>;
     using save_settings = RegCmd<Regs::persist_settings>;
-    using get_serial_number = RegRead<Regs::get_serial_number, serial_t>;
+    using get_serial_number = RegRead<Regs::get_serial_number, serial_t, 1>;
     using perform_self_test = RegRead<Regs::perform_self_test, uint16_t>;
     using perform_factory_reset = RegCmd<Regs::perform_factory_reset>;
     using reinit = RegCmd<Regs::reinit>;
@@ -287,7 +308,7 @@ private:
         uint16_t unused: 12;
         SensorType type: 4;
     };
-    using get_sensor_variant = RegRead<Regs::get_sensor_variant, sensor_variant_t>;
+    using get_sensor_variant = RegRead<Regs::get_sensor_variant, sensor_variant_t, 1>;
 
     i2c::I2CDevice m_Device;
 };
