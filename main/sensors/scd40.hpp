@@ -24,6 +24,21 @@ public:
         , Stop
         , IsDataReady
         , WaitDataReady
+        , SetTempOffset
+        , GetTempOffset
+        , SetAltitude
+        , GetAltitude
+        , SetPressure
+        , GetPressure
+        , StoreSettings
+        , FactoryReset
+        , ReInit
+        , Recalibrate
+        , SelfTest
+        , SetAutoSelfCalibration
+        , GetAutoSelfCalibration
+        , SetAutoSelfCalibrationBaseline
+        , GetAutoSelfCalibrationBaseline
     };
     static const char* err_to_str(ErrorCode e);
 
@@ -56,6 +71,12 @@ public:
         uint16_t w[3];
     };
 
+    enum AutoSelfCalibration: uint16_t
+    {
+        Disabled = 0,
+        Enabled = 1,
+    };
+
     static ExpectedValue<SCD40> Open(i2c::I2CBusMaster &bus);
 
     SCD40(SCD40 &&d) = default;
@@ -69,6 +90,29 @@ public:
     ExpectedValue<serial_t> get_serial_id();
     ExpectedValue<bool> is_data_ready();
     ExpectedResult wait_until_data_ready(i2c::duration_t d = kForever);
+
+    ExpectedResult set_temp_offset(float off);
+    ExpectedValue<float> get_temp_offset();
+
+    ExpectedResult set_altitude(uint16_t a);
+    ExpectedValue<uint16_t> get_altitude();
+
+    ExpectedResult set_pressure(float p);
+    ExpectedValue<float> get_pressure();
+
+    ExpectedResult store_settings();
+    ExpectedResult factory_reset();
+    ExpectedResult re_init();
+    //returns true if all is ok, false - otherwise
+    ExpectedValue<bool> self_test();
+
+    ExpectedValue<uint16_t> recalibrate(uint16_t new_reference_co2);
+
+    ExpectedResult set_auto_self_calibration(AutoSelfCalibration v);
+    ExpectedValue<AutoSelfCalibration> get_auto_self_calibration();
+
+    ExpectedResult set_auto_self_calibration_baseline(uint16_t co2);
+    ExpectedValue<uint16_t> get_auto_self_calibration_baseline();
 private:
     SCD40(i2c::I2CDevice &&d);
     struct word_t
@@ -200,16 +244,7 @@ private:
         std::expected<Val, ::Err> Recv()
         {
             cmd_data_t<0> reg_data{r};
-            //if (auto ret = d.Send(reg_data, sizeof(reg_data), i2c::helpers::kTimeout); !ret)
-            //    return std::unexpected(ret.error());
-            //if constexpr (durMS)
-            //{
-            //    printf("Sleeping for %d ms\n", durMS);
-            //    std::this_thread::sleep_for(std::chrono::milliseconds(durMS));
-            //}
             recv_data_t<Val> data;
-            //if (auto ret = d.Recv(data, sizeof(data), i2c::helpers::kTimeout); !ret)
-                //return std::unexpected(ret.error());
             if (auto ret = d.SendRecv(reg_data, sizeof(reg_data), data, sizeof(data), i2c::helpers::kTimeout); !ret)
                 return std::unexpected(ret.error());
 
@@ -253,6 +288,10 @@ private:
     struct t_offset_t
     {
         uint16_t t;
+        t_offset_t() = default;
+        t_offset_t(uint16_t v):t(v){}
+        t_offset_t(float v){ set_temp_offset(v); }
+
         void set_temp_offset(float _t) { t = _t * 0xffff / 175; }
         float get_temp_offset() const { return float(t * 175) / float(0xffff); }
     };
@@ -265,6 +304,10 @@ private:
     struct ambient_pressure_t
     {
         uint16_t t;
+        ambient_pressure_t() = default;
+        ambient_pressure_t(float v){set(v);}
+        ambient_pressure_t(uint16_t v):t(v){}
+
         void set(float _t) { t = _t / 100; }
         float get() const { return float(t) * 100; }
     };
@@ -279,11 +322,6 @@ private:
         uint16_t get() const { return v - 0x8000; }
     };
     using perform_forced_recalibration = RegReadWrite<Regs::perform_forced_recalibration, uint16_t, frc_t>;
-    enum AutoSelfCalibration: uint16_t
-    {
-        Disabled = 0,
-        Enabled = 1,
-    };
     using set_automatic_self_calibration_enabled = RegWrite<Regs::set_automatic_self_calibration_enabled, AutoSelfCalibration>;
     using get_automatic_self_calibration_enabled = RegRead<Regs::get_automatic_self_calibration_enabled, AutoSelfCalibration>;
 
@@ -311,6 +349,7 @@ private:
     using get_sensor_variant = RegRead<Regs::get_sensor_variant, sensor_variant_t, 1>;
 
     i2c::I2CDevice m_Device;
+    bool m_Measuring = false;
 };
 
 #endif
