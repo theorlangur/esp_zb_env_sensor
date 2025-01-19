@@ -16,6 +16,23 @@
 #include "sensors/ens160.hpp"
 #include "sensors/scd40.hpp"
 #include <thread>
+#include "ph_adc.hpp"
+
+void test_adc()
+{
+    adc::OneShot os(adc_channel_t::ADC_CHANNEL_0);
+    if (!os.valid())
+    {
+        printf("Failed to configure ADC");
+        return;
+    }
+
+    while(true)
+    {
+        printf("One-shot read: %dmV\n", os.read());
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
 
 void print_i2c_error(auto &e) 
 { 
@@ -262,6 +279,9 @@ extern "C" void app_main(void)
            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
     printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
+
+    test_adc();
+    return;
 
     auto print_error = [](auto &e) { printf("i2c Error at %s: %s\n", e.pLocation, esp_err_to_name(e.code)); fflush(stdout); };
 
