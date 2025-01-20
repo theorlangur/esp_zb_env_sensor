@@ -18,6 +18,8 @@
 #include <thread>
 #include "ph_adc.hpp"
 
+#include "zb/zb_main.hpp"
+
 void test_adc()
 {
     adc::OneShot os(adc_channel_t::ADC_CHANNEL_0);
@@ -280,8 +282,11 @@ extern "C" void app_main(void)
 
     printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
 
-    test_adc();
+    zb::main();
     return;
+
+    //test_adc();
+    //return;
 
     auto print_error = [](auto &e) { printf("i2c Error at %s: %s\n", e.pLocation, esp_err_to_name(e.code)); fflush(stdout); };
 

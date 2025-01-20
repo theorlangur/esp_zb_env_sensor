@@ -4,8 +4,8 @@ dependencies:
   espressif/esp-zboss-lib: "*"
   esp_generic_lib:
     path: ../submodules/esp_generic_lib
-  # esp_zb_helpers:
-  #   path: ../submodules/esp_zb_helpers
+  esp_zb_helpers:
+    path: ../submodules/esp_zb_helpers
   esp_periphery_helpers:
     path: ../submodules/esp_periphery_helpers
   ## Required IDF version
