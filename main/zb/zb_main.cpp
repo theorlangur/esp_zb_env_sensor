@@ -3,6 +3,7 @@
 #include "nvs_flash.h"
 #include "esp_zigbee_core.h"
 #include "zbh_helpers.hpp"
+#include "esp_sleep.h"
 #include "ph_i2c.hpp"
 #include "../sensors/scd40.hpp"
 
@@ -28,12 +29,37 @@ namespace zb
     /* Attributes types for occupancy cluster                             */
     /**********************************************************************/
     using ZclAttributeCo2MeasuredValue_t = Co2Cluster_t::Attribute<ESP_ZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID , float>;
+    constexpr ZclAttributeCo2MeasuredValue_t g_Co2Attr;
 
     constexpr float operator ""_ppm(unsigned long long v) { return float(v) / 1000'000.f; }
     float to_ppm(uint16_t v) { return float(v) / 1000'000.f; }
 
     i2c::I2CBusMaster g_i2c_bus(i2c::SDAType(gpio_num_t(10)), i2c::SCLType(gpio_num_t(11)));
     std::optional<SCD40> g_scd40;// = *SCD40::Open(i2c_bus);
+    RTC_DATA_ATTR uint16_t g_DeepSleepCO2;
+    bool g_Measured = false;
+
+    static void attempt_to_read_co2_measurements(uint8_t)
+    {
+        if (auto r = g_scd40->is_data_ready(); !r)
+        {
+            //failure
+        }else if (*r)
+        {
+            if (auto x = g_scd40->read_measurements(); !x)
+            {
+                //failure
+            }else
+            {
+                g_Co2Attr.Set(to_ppm(g_DeepSleepCO2 = x->co2));
+                g_Measured = true;
+            }
+        }else
+        {
+            //re-schedule timer
+            esp_zb_scheduler_alarm(attempt_to_read_co2_measurements, 0, 500);
+        }
+    }
 
     /**********************************************************************/
     /* Common zigbee network handling                                     */
@@ -77,6 +103,19 @@ namespace zb
                 last_failed_counter_update = n;
             }
         };
+
+        auto check_co2_measurements = []{
+            auto now = clock_t::now();
+
+            using namespace std::chrono_literals;
+            if ((now - g_co2_start_measure) >= 5s)
+            {
+                attempt_to_read_co2_measurements(0);
+            }else
+            {
+                esp_zb_scheduler_alarm(attempt_to_read_co2_measurements, 0, std::chrono::duration_cast<std::chrono::milliseconds>(5s - (now - g_co2_start_measure)).count());
+            }
+        };
         switch (sig_type) {
         case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
             FMT_PRINTLN("Initialize Zigbee stack");
@@ -92,7 +131,8 @@ namespace zb
                     esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
                 } else {
                     FMT_PRINTLN("Device rebooted");
-                }
+                    check_co2_measurements();
+                };
             } else {
                 /* commissioning failed */
                 inc_failure("commissioning");
@@ -114,6 +154,7 @@ namespace zb
                          extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
                          extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
                          esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
+                check_co2_measurements();
             } else {
                 inc_failure("steering");
                 FMT_PRINTLN("Network steering was not successful (status: %s)", esp_err_to_name(err_status));
@@ -122,6 +163,10 @@ namespace zb
             break;
         case ESP_ZB_COMMON_SIGNAL_CAN_SLEEP:
             FMT_PRINTLN("Can sleep");
+            if (g_Measured)
+            {
+                //deep sleep
+            }
             break;
         default:
             FMT_PRINTLN("ZDO signal: %s (0x%x), status: %s", esp_zb_zdo_signal_to_string(sig_type), sig_type,
@@ -164,6 +209,10 @@ namespace zb
                 .min_measured_value = 400_ppm,
                 .max_measured_value = 2000_ppm,
             };                                                                                      
+            
+            if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED)
+                co2_cfg.measured_value = to_ppm(g_DeepSleepCO2);//previous measured value
+
             esp_zb_attribute_list_t *pCo2Attributes = esp_zb_carbon_dioxide_measurement_cluster_create(&co2_cfg);
             ESP_ERROR_CHECK(esp_zb_carbon_dioxide_measurement_cluster_add_attr(pCo2Attributes, ESP_ZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID, &co2_cfg.measured_value));
             ESP_ERROR_CHECK(esp_zb_cluster_list_add_carbon_dioxide_measurement_cluster(cluster_list, pCo2Attributes, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
