@@ -352,4 +352,14 @@ private:
     bool m_Measuring = false;
 };
 
+template<>
+struct tools::formatter_t<SCD40::Err>
+{
+    template<FormatDestination Dest>
+    static std::expected<size_t, FormatError> format_to(Dest &&dst, std::string_view const& fmtStr, SCD40::Err const& v)
+    {
+        return tools::format_to(std::forward<Dest>(dst), "{} at {}" , v.i2cErr, SCD40::err_to_str(v.code));
+    }
+};
+
 #endif
