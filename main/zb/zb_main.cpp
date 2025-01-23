@@ -7,6 +7,8 @@
 #include "ph_i2c.hpp"
 #include "../sensors/scd40.hpp"
 #include "driver/rtc_io.h"
+#include "zboss_api.h"
+#include "ph_adc.hpp"
 
 
 template<>
@@ -56,6 +58,7 @@ namespace zb
     using Co2Cluster_t = ZclServerCluster<MEASURE_EP, ESP_ZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT>;
     using TempCluster_t = ZclServerCluster<MEASURE_EP, ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT>;
     using RHCluster_t = ZclServerCluster<MEASURE_EP, ESP_ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT>;
+    using PowerConfigCluster_t = ZclServerCluster<MEASURE_EP, ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG>;
 
     /**********************************************************************/
     /* Attributes types for occupancy cluster                             */
@@ -63,10 +66,12 @@ namespace zb
     using ZclAttributeCo2MeasuredValue_t = Co2Cluster_t::Attribute<ESP_ZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID , float>;
     using ZclAttributeTempMeasuredValue_t = TempCluster_t::Attribute<ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID , int16_t>;
     using ZclAttributeRHMeasuredValue_t = RHCluster_t::Attribute<ESP_ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID , uint16_t>;
+    //using ZclAttributeBatteryVoltage_t = PowerConfigCluster_t::Attribute<ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID, uint8_t>;
 
     constexpr ZclAttributeCo2MeasuredValue_t g_Co2Attr;
     constexpr ZclAttributeTempMeasuredValue_t g_TempAttr;
     constexpr ZclAttributeRHMeasuredValue_t g_RHAttr;
+    //constexpr ZclAttributeBatteryVoltage_t g_BatVoltage;
 
     constexpr float operator ""_ppm(unsigned long long v) { return float(v) / 1000'000.f; }
     float to_ppm(uint16_t v) { return float(v) / 1000'000.f; }
@@ -134,6 +139,7 @@ namespace zb
                 {
                     FMT_PRINTLN("attempt_to_read_co2_measurements: stop error: {}", stop_r.error());
                 }
+                //g_BatVoltage.Set(16);//1.6V
                 esp_zb_scheduler_alarm(enter_deep_sleep, 0, 5000);
             }
         }else
@@ -283,6 +289,19 @@ namespace zb
 
         auto wakeup_cause = esp_sleep_get_wakeup_cause();
         FMT_PRINTLN("deep sleep wake up cause: {}", wakeup_cause);
+
+        {
+            uint8_t batV = 16;//measure here
+            adc::OneShot os(adc_channel_t::ADC_CHANNEL_0);
+            if (os.valid())
+            {
+                batV = os.read() / 100;
+                esp_zb_power_config_cluster_cfg_t power_cfg = {};
+                esp_zb_attribute_list_t *pElectricMeasAttributes = esp_zb_power_config_cluster_create(&power_cfg);
+                esp_zb_power_config_cluster_add_attr(pElectricMeasAttributes, ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID, &batV);
+                ESP_ERROR_CHECK(esp_zb_cluster_list_add_power_config_cluster(cluster_list, pElectricMeasAttributes, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
+            }
+        }
         /**********************************************************************/
         /* CO2 cluster config (server)                                        */
         /**********************************************************************/
