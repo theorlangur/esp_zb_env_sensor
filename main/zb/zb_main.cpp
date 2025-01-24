@@ -291,16 +291,28 @@ namespace zb
         FMT_PRINTLN("deep sleep wake up cause: {}", wakeup_cause);
 
         {
-            uint8_t batV = 16;//measure here
+            uint8_t batV = 0xff;//measure here
+            uint8_t batPercentage = 0xff; 
             adc::OneShot os(adc_channel_t::ADC_CHANNEL_0);
             if (os.valid())
             {
-                batV = os.read() / 100;
-                esp_zb_power_config_cluster_cfg_t power_cfg = {};
-                esp_zb_attribute_list_t *pElectricMeasAttributes = esp_zb_power_config_cluster_create(&power_cfg);
-                esp_zb_power_config_cluster_add_attr(pElectricMeasAttributes, ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID, &batV);
-                ESP_ERROR_CHECK(esp_zb_cluster_list_add_power_config_cluster(cluster_list, pElectricMeasAttributes, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
+                auto mv = os.read();
+                batV = mv / 100;
+                constexpr auto maxVLevel = 1600;
+                constexpr auto minVLevel = 1200;
+                auto maxDeltaV = maxVLevel - minVLevel;
+                auto currentDelta = (maxVLevel - mv);
+                if (currentDelta < 0) currentDelta = 0;
+                if (currentDelta > maxDeltaV) currentDelta = maxDeltaV;
+                currentDelta = maxDeltaV - currentDelta;
+                batPercentage = 200 * currentDelta / maxDeltaV;
+                FMT_PRINTLN("batV: {} 100mV; percentage: {}%", batV, batPercentage / 2);
             }
+            esp_zb_power_config_cluster_cfg_t power_cfg = {};
+            esp_zb_attribute_list_t *pElectricMeasAttributes = esp_zb_power_config_cluster_create(&power_cfg);
+            esp_zb_power_config_cluster_add_attr(pElectricMeasAttributes, ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID, &batV);
+            esp_zb_power_config_cluster_add_attr(pElectricMeasAttributes, ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID, &batPercentage);
+            ESP_ERROR_CHECK(esp_zb_cluster_list_add_power_config_cluster(cluster_list, pElectricMeasAttributes, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
         }
         /**********************************************************************/
         /* CO2 cluster config (server)                                        */
