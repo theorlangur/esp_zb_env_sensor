@@ -10,6 +10,20 @@
 #include "zboss_api.h"
 #include "ph_adc.hpp"
 
+#include "ph_board_led.hpp"
+
+namespace colors
+{
+    /**********************************************************************/
+    /* Colors and patterns                                                */
+    /**********************************************************************/
+    static constexpr led::Color kColorError{255, 0, 0};
+    static constexpr led::Color kColorFactoryReset{0, 255, 255};
+
+    static constexpr uint32_t kBlinkPatternFactoryReset = 0x0F00F00F;
+    static constexpr uint32_t kBlinkPatternZStackError = 0x0F00F00F;
+    static constexpr uint32_t kBlinkPatternSteeringError = 0x0000F00F;
+}
 
 template<>
 struct tools::formatter_t<esp_sleep_source_t>
@@ -47,6 +61,16 @@ namespace zb
     inline static auto g_Model = ZbStr("Co2-NG");
     inline static uint8_t g_AppVersion = 1;
     //inline static const char *TAG = "ESP_ZB_MEASURE_SENSOR";
+
+#if CONFIG_IDF_TARGET_ESP32C6
+        /* For ESP32C6 boards, RTCIO only supports GPIO0~GPIO7 */
+        /* GPIO7 pull down to wake up */
+        static constexpr gpio_num_t gpio_wakeup_pin = gpio_num_t(7);
+#elif CONFIG_IDF_TARGET_ESP32H2
+        /* You can wake up by pulling down GPIO9. On ESP32H2 development boards, the BOOT button is connected to GPIO9.
+           You can use the BOOT button to wake up the boards directly.*/
+        static constexpr gpio_num_t gpio_wakeup_pin = gpio_num_t(9);
+#endif
 
     using clock_t = std::chrono::system_clock;
 
@@ -93,15 +117,6 @@ namespace zb
         const int wakeup_time_sec = 60;
         ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(wakeup_time_sec * 1000000));
 
-#if CONFIG_IDF_TARGET_ESP32C6
-        /* For ESP32C6 boards, RTCIO only supports GPIO0~GPIO7 */
-        /* GPIO7 pull down to wake up */
-        const gpio_num_t gpio_wakeup_pin = gpio_num_t(7);
-#elif CONFIG_IDF_TARGET_ESP32H2
-        /* You can wake up by pulling down GPIO9. On ESP32H2 development boards, the BOOT button is connected to GPIO9.
-           You can use the BOOT button to wake up the boards directly.*/
-        const gpio_num_t gpio_wakeup_pin = gpio_num_t(9);
-#endif
         const uint64_t gpio_wakeup_pin_mask = 1ULL << gpio_wakeup_pin;
 
         ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup(gpio_wakeup_pin_mask, ESP_EXT1_WAKEUP_ANY_LOW));
@@ -170,12 +185,13 @@ namespace zb
         static int failed_counter = 0;
         using clock_t = std::chrono::system_clock;
         static auto last_failed_counter_update = clock_t::now();
+        static clock_t::time_point steering_start;
         auto reset_failure = []{
             failed_counter = 0;
             last_failed_counter_update = clock_t::now();
         };
         auto inc_failure = [](const char *pInfo){
-            if (++failed_counter > 14)
+            if (++failed_counter > 10)
             {
                 FMT_PRINT("Many Failures on {}\n", pInfo);
                 failed_counter = 0;
@@ -222,6 +238,7 @@ namespace zb
                 FMT_PRINTLN("Device started up in {} factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : "non");
                 if (esp_zb_bdb_is_factory_new()) {
                     FMT_PRINTLN("Start network steering");
+                    steering_start = clock_t::now();
                     esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
                 } else {
                     FMT_PRINTLN("Device rebooted");
@@ -234,12 +251,13 @@ namespace zb
                 inc_failure("commissioning");
                 FMT_PRINTLN("Failed to initialize Zigbee stack (status: {})", esp_err_to_name(err_status));
                 esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb, ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
+                led::blink_pattern(colors::kBlinkPatternZStackError, colors::kColorError, duration_ms_t(700));
             }
             break;
         case ESP_ZB_ZDO_SIGNAL_LEAVE:
             FMT_PRINTLN("Got leave signal");
-            //esp_zb_factory_reset();
-            //esp_restart();
+            esp_zb_factory_reset();
+            esp_restart();
             break;
         case ESP_ZB_BDB_SIGNAL_STEERING:
             if (err_status == ESP_OK) {
@@ -251,9 +269,19 @@ namespace zb
                          , esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
                 check_co2_measurements();
             } else {
-                inc_failure("steering");
+                //inc_failure("steering");
+                auto n = clock_t::now();
+                using namespace std::chrono_literals;
+                if ((n - steering_start) >= 10s)
+                {
+                    //enter a long deep sleep to wake up only on 'boot' click
+                    esp_sleep_disable_wakeup_source(esp_sleep_source_t::ESP_SLEEP_WAKEUP_TIMER);
+                    esp_deep_sleep_start();//wake only by a button press
+                    return;
+                }
                 FMT_PRINTLN("Network steering was not successful (status: {})", esp_err_to_name(err_status));
                 esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb, ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
+                led::blink_pattern(colors::kBlinkPatternSteeringError, colors::kColorError, duration_ms_t(700));
             }
             break;
         default:
@@ -390,6 +418,23 @@ namespace zb
             esp_zb_init(&zb_nwk_cfg);
         }
 
+        if (gpio_get_level(gpio_wakeup_pin) == 0)//pressed
+        {
+            int secs_to_factory_reset = 50;//50 * 100ms
+            while((gpio_get_level(gpio_wakeup_pin) == 0) && (--secs_to_factory_reset))
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+
+            if (!secs_to_factory_reset)
+            {
+                led::blink_pattern(colors::kBlinkPatternFactoryReset, colors::kColorFactoryReset, duration_ms_t(1000));
+                esp_zb_factory_reset();
+                esp_restart();
+                return;
+            }
+        }
+
         esp_zb_ep_list_t *ep_list = esp_zb_ep_list_create();
 
         create_measure_ep(ep_list, MEASURE_EP);
@@ -431,6 +476,7 @@ namespace zb
 
     void main()
     {
+        led::setup();
         esp_zb_platform_config_t config = {
             .radio_config = {.radio_mode = ZB_RADIO_MODE_NATIVE, .radio_uart_config = {}},
             .host_config = {.host_connection_mode = ZB_HOST_CONNECTION_MODE_NONE, .host_uart_config = {}},
