@@ -326,8 +326,8 @@ namespace zb
             {
                 auto mv = os.read();
                 batV = mv / 100;
-                constexpr auto maxVLevel = 1600;
-                constexpr auto minVLevel = 1200;
+                constexpr auto maxVLevel = 3200;
+                constexpr auto minVLevel = 2000;
                 auto maxDeltaV = maxVLevel - minVLevel;
                 auto currentDelta = (maxVLevel - mv);
                 if (currentDelta < 0) currentDelta = 0;
