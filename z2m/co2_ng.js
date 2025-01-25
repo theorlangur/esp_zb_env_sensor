@@ -5,7 +5,7 @@ const definition = {
     model: 'Co2-NG',
     vendor: 'Orlangur',
     description: 'Automatically generated definition',
-    extend: [battery({voltage:true, voltageReporting:true}), co2(), temperature(), humidity()],
+    extend: [battery({voltage:true}), co2(), temperature(), humidity()],
     meta: {},
 };
 
