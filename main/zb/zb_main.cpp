@@ -61,6 +61,7 @@ namespace zb
     inline static auto g_Model = ZbStr("Co2-NG");
     inline static uint8_t g_AppVersion = 1;
     //inline static const char *TAG = "ESP_ZB_MEASURE_SENSOR";
+    static constexpr int deep_sleep_interval = 60 * 2;//seconds
 
 #if CONFIG_IDF_TARGET_ESP32C6
         /* For ESP32C6 boards, RTCIO only supports GPIO0~GPIO7 */
@@ -114,8 +115,7 @@ namespace zb
 
     static void config_deep_sleep()
     {
-        const int wakeup_time_sec = 60;
-        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(wakeup_time_sec * 1000000));
+        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(deep_sleep_interval * 1000000));
 
         const uint64_t gpio_wakeup_pin_mask = 1ULL << gpio_wakeup_pin;
 
