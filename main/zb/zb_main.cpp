@@ -242,8 +242,10 @@ namespace zb
                     esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
                 } else {
                     FMT_PRINTLN("Device rebooted");
+#ifndef NDEBUG
                     auto wakeup_cause = esp_sleep_get_wakeup_cause();
                     FMT_PRINTLN("deep sleep wake up cause: {}", wakeup_cause);
+#endif
                     check_co2_measurements();
                 };
             } else {
