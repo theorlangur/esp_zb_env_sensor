@@ -149,6 +149,11 @@ namespace zb
                 g_Co2Attr.Set(to_ppm(g_DeepSleepCO2 = x->co2));
                 g_TempAttr.Set(g_DeepSleepTemp = to_deg(x->temp));
                 g_RHAttr.Set(g_DeepSleepRH = to_rh(x->rh));
+                //{
+                //    esp_zb_ieee_addr_t coord;
+                //    esp_zb_ieee_address_by_short(/*coordinator*/uint16_t(0), coord);
+                //    g_BatVoltage.Report({coord});
+                //}
                 FMT_PRINTLN("attempt_to_read_co2_measurements: Reading done with: {}ppm {:.2}C {:.2}%", g_DeepSleepCO2, x->temp, x->rh);
                 if (auto stop_r = g_scd40->stop(); !stop_r)
                 {
